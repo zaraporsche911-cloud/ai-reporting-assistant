@@ -1,0 +1,23 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { adminApi } from '../api'
+import { getProblemMessage } from '../api/client'
+import { useToast } from '../components/Toast'
+import { Button, ErrorState, Field, inputClass, LoadingState, PageHeader, Panel, StatusBadge } from '../components/ui'
+import type { User, UserRole } from '../types/api'
+
+const roles: UserRole[] = ['ADMIN', 'FLEET_MANAGER', 'OPERATIONS_MANAGER', 'ANALYST', 'VIEWER']
+
+export function AdminUsersPage() {
+  const client = useQueryClient(); const toast = useToast(); const [showCreate, setShowCreate] = useState(false)
+  const query = useQuery({ queryKey: ['admin-users'], queryFn: adminApi.users })
+  const update = useMutation({ mutationFn: ({ id, role, enabled }: User) => adminApi.updateUser(id, role, enabled), onSuccess: async () => { await client.invalidateQueries({ queryKey: ['admin-users'] }); toast.success('User access updated') }, onError: (error) => toast.error(getProblemMessage(error)) })
+  if (query.isLoading) return <LoadingState label="Loading users" />
+  if (query.isError) return <ErrorState message={getProblemMessage(query.error)} />
+  return <><PageHeader eyebrow="Administration" title="Users and access" description="Roles define authorization at both the HTTP boundary and service methods." actions={<Button onClick={() => setShowCreate((value) => !value)}>{showCreate ? 'Close form' : 'Add user'}</Button>} />{showCreate && <CreateUser onCreated={async () => { setShowCreate(false); await client.invalidateQueries({ queryKey: ['admin-users'] }) }} />}
+    <Panel className="overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full min-w-180 text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-ink-600 dark:bg-slate-800 dark:text-slate-400"><tr><th className="px-5 py-4">User</th><th className="px-5 py-4">Role</th><th className="px-5 py-4">Status</th><th className="px-5 py-4">Action</th></tr></thead><tbody className="divide-y divide-line dark:divide-slate-800">{query.data!.map((user) => <UserRow key={user.id} user={user} onSave={(value) => update.mutate(value)} />)}</tbody></table></div></Panel></>
+}
+
+function UserRow({ user, onSave }: { user: User; onSave: (value: User) => void }) { const [role, setRole] = useState(user.role); const [enabled, setEnabled] = useState(user.enabled); return <tr><td className="px-5 py-4"><p className="font-semibold">{user.fullName}</p><p className="text-xs text-ink-600 dark:text-slate-400">{user.email}</p></td><td className="px-5 py-4"><select aria-label={`Role for ${user.fullName}`} className={`${inputClass} min-w-48`} value={role} onChange={(event) => setRole(event.target.value as UserRole)}>{roles.map((item) => <option key={item}>{item}</option>)}</select></td><td className="px-5 py-4"><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><StatusBadge tone={enabled ? 'success' : 'danger'}>{enabled ? 'Enabled' : 'Disabled'}</StatusBadge></label></td><td className="px-5 py-4"><Button variant="secondary" onClick={() => onSave({ ...user, role, enabled })}>Save</Button></td></tr> }
+
+function CreateUser({ onCreated }: { onCreated: () => Promise<void> }) { const toast = useToast(); const [values, setValues] = useState({ fullName: '', email: '', password: '', role: 'VIEWER' as UserRole }); const mutation = useMutation({ mutationFn: () => adminApi.createUser(values), onSuccess: async () => { await onCreated(); toast.success('User created') }, onError: (error) => toast.error(getProblemMessage(error)) }); return <Panel className="mb-5"><form className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><Field label="Full name"><input className={inputClass} required minLength={2} value={values.fullName} onChange={(event) => setValues({ ...values, fullName: event.target.value })} /></Field><Field label="Email"><input className={inputClass} required type="email" value={values.email} onChange={(event) => setValues({ ...values, email: event.target.value })} /></Field><Field label="Temporary password"><input className={inputClass} required type="password" minLength={12} value={values.password} onChange={(event) => setValues({ ...values, password: event.target.value })} /></Field><Field label="Role"><select className={inputClass} value={values.role} onChange={(event) => setValues({ ...values, role: event.target.value as UserRole })}>{roles.map((role) => <option key={role}>{role}</option>)}</select></Field><div className="flex items-end"><Button className="w-full" disabled={mutation.isPending}>Create user</Button></div></form></Panel> }
